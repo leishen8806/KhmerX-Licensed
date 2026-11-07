@@ -1,0 +1,1 @@
+{"eventType":"payment.failed","applicationId":"app-001","paymentType":"repayment","externalReference":"repay-002","reasonCode":"provider_unavailable","failedAt":"2026-11-07T10:05:00Z"}

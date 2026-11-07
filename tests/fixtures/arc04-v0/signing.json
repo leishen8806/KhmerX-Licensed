@@ -1,0 +1,109 @@
+{
+  "version": "arc04-v0",
+  "vectors": [
+    {
+      "name": "ordinary approval",
+      "partnerId": "partner-a",
+      "timestamp": "1794000000",
+      "now": 1794000000,
+      "nonce": "nonce-arc04-0001",
+      "idempotencyKey": "idem-0001",
+      "body": "{\"eventType\":\"loan.approved\",\"applicationId\":\"app-001\"}",
+      "secret": "test-only-secret-1",
+      "canonical": "partner-a\n1794000000\nnonce-arc04-0001\nidem-0001\n{\"eventType\":\"loan.approved\",\"applicationId\":\"app-001\"}",
+      "signature": "c925a1a011e9d959ebf9f337e4946f66e4a81ea97b5b713681fd90ae9672f375",
+      "valid": true
+    },
+    {
+      "name": "empty idempotency key and unicode body",
+      "partnerId": "partner-b",
+      "timestamp": "1794000001",
+      "now": 1794000001,
+      "nonce": "nonce-arc04-0002",
+      "idempotencyKey": "",
+      "body": "{\"eventType\":\"agreement.signed\",\"备注\":\"签署成功\"}",
+      "secret": "test-only-secret-2",
+      "canonical": "partner-b\n1794000001\nnonce-arc04-0002\n\n{\"eventType\":\"agreement.signed\",\"备注\":\"签署成功\"}",
+      "signature": "b367d1989b67a32bc48f5285160405966cabd50964662317e50888730e29ad66",
+      "valid": true
+    },
+    {
+      "name": "body ending with newline",
+      "partnerId": "partner-a",
+      "timestamp": "1794000002",
+      "now": 1794000002,
+      "nonce": "nonce-arc04-0003",
+      "idempotencyKey": "idem-0003",
+      "body": "{\"eventType\":\"application.withdrawn\"}\n",
+      "secret": "test-only-secret-1",
+      "canonical": "partner-a\n1794000002\nnonce-arc04-0003\nidem-0003\n{\"eventType\":\"application.withdrawn\"}\n",
+      "signature": "e75f9e9c1ea63398e5e229bd4762a1af0c13680ec1fabe6712340afa296d2171",
+      "valid": true
+    },
+    {
+      "name": "uppercase signature",
+      "partnerId": "partner-a",
+      "timestamp": "1794000003",
+      "now": 1794000003,
+      "nonce": "nonce-arc04-0004",
+      "idempotencyKey": "idem-0004",
+      "body": "{\"eventType\":\"funding.confirmed\",\"amountCents\":1200}",
+      "secret": "test-only-secret-1",
+      "canonical": "partner-a\n1794000003\nnonce-arc04-0004\nidem-0004\n{\"eventType\":\"funding.confirmed\",\"amountCents\":1200}",
+      "signature": "E25679E9300DF7A5DC2D7AB08CF6AABF0742FA80B392A52D3977A7A30324773E",
+      "valid": true
+    },
+    {
+      "name": "expired timestamp",
+      "partnerId": "partner-a",
+      "timestamp": "1793999699",
+      "now": 1794000000,
+      "nonce": "nonce-arc04-0005",
+      "idempotencyKey": "idem-0005",
+      "body": "{}",
+      "secret": "test-only-secret-1",
+      "canonical": "partner-a\n1793999699\nnonce-arc04-0005\nidem-0005\n{}",
+      "signature": "f087c701f6b2f760c2fe3d2a8735b373ac5e7f332da3ed01006d8e69dd9bf76e",
+      "valid": false
+    },
+    {
+      "name": "malformed nonce",
+      "partnerId": "partner-a",
+      "timestamp": "1794000006",
+      "now": 1794000006,
+      "nonce": "bad",
+      "idempotencyKey": "idem-0006",
+      "body": "{}",
+      "secret": "test-only-secret-1",
+      "canonical": "partner-a\n1794000006\nbad\nidem-0006\n{}",
+      "signature": "91d1fc0678dd8ed95e52268615e5207dff53a3492dd44d92a03efb67ceb9fb11",
+      "valid": false
+    },
+    {
+      "name": "payment failure",
+      "partnerId": "partner-c",
+      "timestamp": "1794000007",
+      "now": 1794000007,
+      "nonce": "nonce-arc04-0007",
+      "idempotencyKey": "idem-0007",
+      "body": "{\"eventType\":\"payment.failed\",\"reason\":\"synthetic\"}",
+      "secret": "test-only-secret-3",
+      "canonical": "partner-c\n1794000007\nnonce-arc04-0007\nidem-0007\n{\"eventType\":\"payment.failed\",\"reason\":\"synthetic\"}",
+      "signature": "92870400d51f0c3d9d2ee49233518298f17534bdad804957467ba9f3b76c064d",
+      "valid": true
+    },
+    {
+      "name": "repayment confirmation",
+      "partnerId": "partner-c",
+      "timestamp": "1794000008",
+      "now": 1794000008,
+      "nonce": "nonce-arc04-0008",
+      "idempotencyKey": "idem-0008",
+      "body": "{\"eventType\":\"repayment.confirmed\",\"amountCents\":500}",
+      "secret": "test-only-secret-3",
+      "canonical": "partner-c\n1794000008\nnonce-arc04-0008\nidem-0008\n{\"eventType\":\"repayment.confirmed\",\"amountCents\":500}",
+      "signature": "b4b05875a9d42e4b234ab048510782ac0c05a699d4c85994e5235ed40563e31e",
+      "valid": true
+    }
+  ]
+}
