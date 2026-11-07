@@ -9,15 +9,15 @@ import test from 'node:test';
 import {Miniflare} from 'miniflare';
 import {handleEvent} from '../lib/licensed-events.ts';
 
-const root=new URL('./fixtures/arc04-v0/events/',import.meta.url),secret='test-only-secret-1',now=1794000000;
-const headers=(body,nonce='nonce-route-000001',key='idem-route-001')=>{const partner='partner-a',timestamp=String(now);return {'x-partner-id':partner,'x-timestamp':timestamp,'x-nonce':nonce,'x-idempotency-key':key,'x-signature':createHmac('sha256',secret).update([partner,timestamp,nonce,key,body].join('\n')).digest('hex')}};
-const envFor=db=>({DB:db,PARTNER_INBOUND_SECRETS_JSON:JSON.stringify({'partner-a':secret})});
+const root=new URL('./fixtures/arc04-v0/events/',import.meta.url),secret='test-only-secret-1',partnerBSecret='test-only-secret-2',now=1794000000;
+const headers=(body,nonce='nonce-route-000001',key='idem-route-001',partner='partner-a',secretValue=secret)=>{const timestamp=String(now);return {'x-partner-id':partner,'x-timestamp':timestamp,'x-nonce':nonce,'x-idempotency-key':key,'x-signature':createHmac('sha256',secretValue).update([partner,timestamp,nonce,key,body].join('\n')).digest('hex')}};
+const envFor=db=>({DB:db,PARTNER_INBOUND_SECRETS_JSON:JSON.stringify({'partner-a':secret,'partner-b':partnerBSecret})});
 async function database(persist=false,migrate=true){
  const mf=new Miniflare({modules:[{type:'ESModule',name:'index.js',path:fileURLToPath(new URL('../scripts/d1-worker.mjs',import.meta.url))}],d1Databases:{DB:'licensed'},d1Persist:persist||false,compatibilityDate:'2026-05-15'}),db=await mf.getD1Database('DB');
  if(migrate)for(const statement of readFileSync(new URL('../drizzle/0001_licensed_core.sql',import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await db.prepare(statement).run();
  return {mf,db};
 }
-async function send(db,body,nonce='nonce-route-000001',key='idem-route-001'){return handleEvent(new Request('http://127.0.0.1/v0/events',{method:'POST',headers:{'content-type':'application/json',...headers(body,nonce,key)},body}),envFor(db),now);}
+async function send(db,body,nonce='nonce-route-000001',key='idem-route-001',partner='partner-a'){const secretValue=partner==='partner-b'?partnerBSecret:secret;return handleEvent(new Request('http://127.0.0.1/v0/events',{method:'POST',headers:{'content-type':'application/json',...headers(body,nonce,key,partner,secretValue)},body}),envFor(db),now);}
 
 test('licensed D1 receiver accepts the three outbound event samples and rejects others',async t=>{
  const {mf,db}=await database();t.after(()=>mf.dispose());
@@ -36,4 +36,40 @@ test('signed and withdrawn unknown applications return 409',async t=>{
 
 test('D1 idempotency and nonce replay survive a Miniflare restart',async t=>{
  const persist=await mkdtemp(join(tmpdir(),'licensed-d1-')),first=await database(persist),body=JSON.stringify({eventType:'application.submitted',applicationId:'app-restart-001'});assert.equal((await send(first.db,body)).status,202);await first.mf.dispose();const second=await database(persist,false);assert.equal((await second.db.prepare('SELECT COUNT(*) AS n FROM inbound_events').first()).n,1);assert.equal((await send(second.db,body,'nonce-route-000002')).status,200);assert.equal((await send(second.db,body,'nonce-route-000001','idem-route-002')).status,409);t.after(async()=>{await second.mf.dispose();await rm(persist,{recursive:true,force:true});});
+});
+
+test('applications and event history are isolated by partner',async t=>{
+ const {mf,db}=await database();t.after(()=>mf.dispose());
+ const submitted=JSON.stringify({eventType:'application.submitted',applicationId:'shared-app',customerRef:'synthetic-a'});
+ const first=await send(db,submitted,'nonce-partner-a-01','idem-a-000001','partner-a');assert.equal(first.status,202);
+ const cross=JSON.stringify({eventType:'agreement.signed',applicationId:'shared-app'});
+ for(const eventType of ['agreement.signed','application.withdrawn']){
+  const safe=eventType.replaceAll('.','-');
+  const response=await send(db,JSON.stringify({eventType,applicationId:'shared-app'}),`nonce-b-${safe}-001`,`idem-b-${safe}-01`,'partner-b');
+  assert.equal(response.status,409);assert.equal((await response.json()).code,'APPLICATION_NOT_FOUND');
+ }
+ assert.equal((await send(db,cross,'nonce-a-sign-001','idem-a-sign-01','partner-a')).status,202);
+ const app=await db.prepare('SELECT partner_id,status,payload FROM applications WHERE id=? AND partner_id=?').bind('shared-app','partner-a').first();
+ assert.equal(app.partner_id,'partner-a');assert.equal(app.status,'signed');assert.match(app.payload,/customerRef/);
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM application_events').first()).n,1);
+});
+
+test('application state transitions preserve submitted payload and enforce closure',async t=>{
+ const {mf,db}=await database();t.after(()=>mf.dispose());
+ const submitted=JSON.stringify({eventType:'application.submitted',applicationId:'state-app',amountCents:1200});
+ assert.equal((await send(db,submitted,'nonce-state-sub-1','idem-state-sub-1')).status,202);
+ const duplicate=await send(db,submitted,'nonce-state-sub-2','idem-state-sub-2');assert.equal(duplicate.status,409);assert.equal((await duplicate.json()).code,'APPLICATION_EXISTS');
+ assert.equal((await send(db,JSON.stringify({eventType:'agreement.signed',applicationId:'state-app',signedAt:'synthetic'}),'nonce-state-sign-1','idem-state-sign-1')).status,202);
+ assert.equal((await send(db,JSON.stringify({eventType:'application.withdrawn',applicationId:'state-app',reason:'synthetic'}),'nonce-state-with-1','idem-state-with-1')).status,202);
+ const after=await db.prepare('SELECT status,payload FROM applications WHERE partner_id=? AND id=?').bind('partner-a','state-app').first();assert.equal(after.status,'withdrawn');assert.match(after.payload,/amountCents/);assert.doesNotMatch(after.payload,/signedAt/);
+ const closed=await send(db,JSON.stringify({eventType:'agreement.signed',applicationId:'state-app'}),'nonce-state-closed-1','idem-state-closed-1');assert.equal(closed.status,409);assert.equal((await closed.json()).code,'APPLICATION_CLOSED');
+ const events=await db.prepare('SELECT event_type FROM application_events WHERE partner_id=? AND application_id=? ORDER BY created_at').bind('partner-a','state-app').all();assert.deepEqual(events.results.map(row=>row.event_type),['agreement.signed','application.withdrawn']);
+});
+
+test('concurrent writes convert nonce and idempotency races to non-500 responses',async t=>{
+ const {mf,db}=await database();t.after(()=>mf.dispose());
+ const requests=['race-one','race-two'].map((applicationId,index)=>send(db,JSON.stringify({eventType:'application.submitted',applicationId}),`nonce-race-shared`,`idem-race-${index}-01`));
+ const responses=await Promise.all(requests),statuses=await Promise.all(responses.map(async response=>({status:response.status,body:await response.json()})));
+ assert.equal(statuses.filter(item=>item.status===202).length,1);assert.equal(statuses.some(item=>item.status===409&&item.body.code==='NONCE_REPLAY'),true);assert.equal(statuses.some(item=>item.status===500),false);
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM nonces').first()).n,1);
 });

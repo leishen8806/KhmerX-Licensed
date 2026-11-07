@@ -1,4 +1,4 @@
-// Copied from KhmerX 77779ae lib/http/route.ts.
+// Copied from KhmerX 77779ae lib/http/route.ts; modified: error classes import from lib/http/errors.ts.
 /**
  * Route wrapper: request id resolution, Origin enforcement, error classification.
  *
@@ -8,8 +8,7 @@
  * server log only (never to the client).
  */
 import {assertAllowedOrigin} from '@/lib/request-security';
-import {AuthError} from '@/lib/h5-auth-core';
-import {KycError} from '@/lib/kyc/core';
+import {AuthError,KycError} from '@/lib/http/errors';
 import {ApiError} from './api-error';
 import {resolveRequestId, attachRequestId, REQUEST_ID_HEADER} from './request-id';
 
