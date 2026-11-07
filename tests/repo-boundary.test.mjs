@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import {readdir,writeFile,unlink} from 'node:fs/promises';
-import {join,relative} from 'node:path';
+import {access,readdir,writeFile,unlink,mkdir,rm} from 'node:fs/promises';
+import {dirname,join,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 
@@ -19,9 +19,12 @@ test('licensed repository contains no client, KYC or mobile trees',async()=>{
 
 test('licensed boundary rejects a KYC file even when its path shares a prefix',async()=>{
   const root=fileURLToPath(new URL('..',import.meta.url)),path=join(root,'lib','kyc','x.ts');
+  let ownedDir=false;
+  try {await access(dirname(path));} catch {ownedDir=true;}
+  await mkdir(dirname(path),{recursive:true});
   await writeFile(path,'export const synthetic=true;');
   try {
     const files=await walk(root);
     assert.equal(files.map(file=>file.replaceAll('\\','/')).some(file=>file.startsWith('lib/kyc/')),true);
-  } finally {await unlink(path);}
+  } finally {await unlink(path);if(ownedDir)await rm(dirname(path),{recursive:true,force:true});}
 });
