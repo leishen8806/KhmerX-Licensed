@@ -26,7 +26,11 @@
     "@types/node": "22.19.19",
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.5",
-    "vite": "8.0.13"
+    "vite": "8.0.13",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "react-server-dom-webpack": "19.2.6",
+    "@vitejs/plugin-react": "6.0.2",
+    "wrangler": "4.92.0"
   },
   "overrides": {
     "miniflare": {
