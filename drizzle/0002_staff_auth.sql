@@ -6,6 +6,7 @@ CREATE TABLE team_members (
   version INTEGER NOT NULL DEFAULT 1,
   mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK (mfa_enabled IN (0,1)),
   mfa_secret TEXT,
+  mfa_last_counter INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
