@@ -9,7 +9,7 @@ import {verifyInstitutionCallback} from '../lib/institution-callback.ts';
 const now='2026-11-09T00:00:00.000Z';
 async function db(){
  const mf=new Miniflare({modules:[{type:'ESModule',name:'index.js',path:fileURLToPath(new URL('../scripts/d1-worker.mjs',import.meta.url))}],d1Databases:{DB:'licensed'},d1Persist:false,compatibilityDate:'2026-05-15'}),database=await mf.getD1Database('DB');
- for(const file of ['0001_licensed_core.sql','0004_partner_outbox.sql'])for(const sql of readFileSync(new URL(`../drizzle/${file}`,import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await database.prepare(sql).run();
+ for(const file of ['0001_licensed_core.sql','0003_partner_outbox.sql'])for(const sql of readFileSync(new URL(`../drizzle/${file}`,import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await database.prepare(sql).run();
  return {mf,database};
 }
 const envFor=database=>({DB:database,PARTNER_OUTBOX:'on',PARTNER_OUTBOUND_SECRETS_JSON:JSON.stringify({'licensed-test':'synthetic-secret'}),PARTNER_ENDPOINTS_JSON:JSON.stringify({'licensed-test':'https://institution.invalid/v0/events'}),PARTNER_SENDER_IDS_JSON:JSON.stringify({'licensed-test':'sender-licensed'})});
