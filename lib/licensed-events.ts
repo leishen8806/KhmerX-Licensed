@@ -34,7 +34,7 @@ export async function handleEvent(request:Request,env:Record<string,unknown>,now
  } else {
   if(!existing)return json({code:'APPLICATION_NOT_FOUND'},409);
   if(existing.status==='withdrawn')return json({code:'APPLICATION_CLOSED'},409);
-  if(eventType==='agreement.signed'&&existing.status!=='submitted')return json({code:'APPLICATION_STATE_INVALID'},409);
+  if(eventType==='agreement.signed'&&existing.status!=='approved')return json({code:'APPLICATION_STATE_INVALID'},409);
  }
  const nowIso=new Date().toISOString(),response={ok:true,accepted:true,applicationId};
  const appStatus=eventType==='application.submitted'?'submitted':eventType==='agreement.signed'?'signed':'withdrawn';

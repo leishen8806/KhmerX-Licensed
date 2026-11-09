@@ -14,7 +14,7 @@ const headers=(body,nonce='nonce-route-000001',key='idem-route-001',partner='par
 const envFor=db=>({DB:db,PARTNER_INBOUND_SECRETS_JSON:JSON.stringify({'partner-a':secret,'partner-b':partnerBSecret})});
 async function database(persist=false,migrate=true){
  const mf=new Miniflare({modules:[{type:'ESModule',name:'index.js',path:fileURLToPath(new URL('../scripts/d1-worker.mjs',import.meta.url))}],d1Databases:{DB:'licensed'},d1Persist:persist||false,compatibilityDate:'2026-05-15'}),db=await mf.getD1Database('DB');
- if(migrate)for(const statement of readFileSync(new URL('../drizzle/0001_licensed_core.sql',import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await db.prepare(statement).run();
+ if(migrate)for(const file of ['0001_licensed_core.sql','0004_approval.sql'])for(const statement of readFileSync(new URL(`../drizzle/${file}`,import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await db.prepare(statement).run();
  return {mf,db};
 }
 async function send(db,body,nonce='nonce-route-000001',key='idem-route-001',partner='partner-a'){const secretValue=partner==='partner-b'?partnerBSecret:secret;return handleEvent(new Request('http://127.0.0.1/v0/events',{method:'POST',headers:{'content-type':'application/json',...headers(body,nonce,key,partner,secretValue)},body}),envFor(db),now);}
@@ -22,7 +22,7 @@ async function send(db,body,nonce='nonce-route-000001',key='idem-route-001',part
 test('licensed D1 receiver accepts the three outbound event samples and rejects others',async t=>{
  const {mf,db}=await database();t.after(()=>mf.dispose());
  for(const [name,nonce] of [['application.submitted','nonce-submitted-0001'],['agreement.signed','nonce-signed-000001'],['application.withdrawn','nonce-withdrawn-0001']]){
-  const body=await readFile(new URL(`${name}.json`,root),'utf8');assert.equal((await send(db,body,nonce,`idem-${name.replaceAll('.','-')}`)).status,202,name);
+  const body=await readFile(new URL(`${name}.json`,root),'utf8');if(name==='agreement.signed')await db.prepare("UPDATE applications SET status='approved' WHERE id='app-001'").run();assert.equal((await send(db,body,nonce,`idem-${name.replaceAll('.','-')}`)).status,202,name);
  }
  for(const name of ['loan.approved','loan.rejected','funding.confirmed','repayment.confirmed','payment.failed']){
   const body=await readFile(new URL(`${name}.json`,root),'utf8'),response=await send(db,body,`nonce-${name.replaceAll('.','-')}-001`,`idem-${name.replaceAll('.','-')}`);assert.equal(response.status,400,name);assert.equal((await response.json()).code,'EVENT_NOT_ACCEPTED');
@@ -41,7 +41,7 @@ test('D1 idempotency and nonce replay survive a Miniflare restart',async t=>{
 test('applications and event history are isolated by partner',async t=>{
  const {mf,db}=await database();t.after(()=>mf.dispose());
  const submitted=JSON.stringify({eventType:'application.submitted',applicationId:'shared-app',customerRef:'synthetic-a'});
- const first=await send(db,submitted,'nonce-partner-a-01','idem-a-000001','partner-a');assert.equal(first.status,202);
+ const first=await send(db,submitted,'nonce-partner-a-01','idem-a-000001','partner-a');assert.equal(first.status,202);await db.prepare("UPDATE applications SET status='approved' WHERE id='shared-app' AND partner_id='partner-a'").run();
  const cross=JSON.stringify({eventType:'agreement.signed',applicationId:'shared-app'});
  for(const eventType of ['agreement.signed','application.withdrawn']){
   const safe=eventType.replaceAll('.','-');
@@ -57,7 +57,7 @@ test('applications and event history are isolated by partner',async t=>{
 test('application state transitions preserve submitted payload and enforce closure',async t=>{
  const {mf,db}=await database();t.after(()=>mf.dispose());
  const submitted=JSON.stringify({eventType:'application.submitted',applicationId:'state-app',amountCents:1200});
- assert.equal((await send(db,submitted,'nonce-state-sub-1','idem-state-sub-1')).status,202);
+ assert.equal((await send(db,submitted,'nonce-state-sub-1','idem-state-sub-1')).status,202);await db.prepare("UPDATE applications SET status='approved' WHERE id='state-app'").run();
  const duplicate=await send(db,submitted,'nonce-state-sub-2','idem-state-sub-2');assert.equal(duplicate.status,409);assert.equal((await duplicate.json()).code,'APPLICATION_EXISTS');
  assert.equal((await send(db,JSON.stringify({eventType:'agreement.signed',applicationId:'state-app',signedAt:'synthetic'}),'nonce-state-sign-1','idem-state-sign-1')).status,202);
  assert.equal((await send(db,JSON.stringify({eventType:'application.withdrawn',applicationId:'state-app',reason:'synthetic'}),'nonce-state-with-1','idem-state-with-1')).status,202);
