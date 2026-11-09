@@ -8,6 +8,7 @@ const mf=new Miniflare({modules:[{type:'ESModule',name:'index.js',path:fileURLTo
 const db=await mf.getD1Database('DB');
 for(const statement of readFileSync(new URL('./drizzle/0001_licensed_core.sql',import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await db.prepare(statement).run();
 const env={DB,PARTNER_INBOUND_SECRETS_JSON:process.env.PARTNER_INBOUND_SECRETS_JSON||''};
+for(const statement of readFileSync(new URL('./drizzle/0004_partner_outbox.sql',import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await db.prepare(statement).run();
 const server=createServer(async(req,res)=>{
   if(req.method==='GET'&&req.url==='/healthz'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({ok:true}));return;}
   if(req.method!=='POST'||req.url!=='/v0/events'){res.writeHead(404);res.end();return;}
