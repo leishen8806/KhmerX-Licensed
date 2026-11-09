@@ -1,7 +1,6 @@
 CREATE TABLE partner_outbox (
   id TEXT PRIMARY KEY NOT NULL,
-  tenant_id TEXT NOT NULL,
-  institution_id TEXT NOT NULL,
+  partner_id TEXT NOT NULL,
   event_type TEXT NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
   payload TEXT NOT NULL,
@@ -15,4 +14,4 @@ CREATE TABLE partner_outbox (
   delivered_at TEXT
 );
 CREATE INDEX partner_outbox_due ON partner_outbox(status, next_attempt_at, id);
-CREATE INDEX partner_outbox_tenant ON partner_outbox(tenant_id, created_at);
+CREATE INDEX partner_outbox_partner ON partner_outbox(partner_id, created_at);
