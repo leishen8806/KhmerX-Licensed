@@ -7,7 +7,7 @@ type EventInput={partnerId:string;eventType:EventType;eventId:string;application
 type OutboxRow={id:string;partner_id:string;payload:string;idempotency_key:string;attempts:number;created_at:string};
 
 const config=(env:Env,name:string)=>{try{const parsed=JSON.parse(String(env[name]||''));return parsed&&typeof parsed==='object'?parsed as Record<string,string>:{};}catch{return {};}};
-const endpoint=(env:Env,id:string)=>{const raw=config(env,'PARTNER_ENDPOINTS_JSON')[id];if(typeof raw!=='string')return null;try{const url=new URL(raw);return url.protocol==='https:'?url:null;}catch{return null;}};
+const endpoint=(env:Env,id:string)=>{const raw=config(env,'PARTNER_ENDPOINTS_JSON')[id];if(typeof raw!=='string')return null;try{const url=new URL(raw);if(url.protocol==='https:')return url;const localHttp=String(env.PAYEASE_ENV||'')==='local'&&url.protocol==='http:'&&(url.hostname==='127.0.0.1'||url.hostname==='localhost')&&!url.username&&!url.password;return localHttp?url:null;}catch{return null;}};
 const secret=(env:Env,id:string)=>{const value=config(env,'PARTNER_OUTBOUND_SECRETS_JSON')[id];return typeof value==='string'?value:'';};
 const sender=(env:Env,id:string)=>{const value=config(env,'PARTNER_SENDER_IDS_JSON')[id];return typeof value==='string'&&value?value:'';};
 const sha256=async(value:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');
