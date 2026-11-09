@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {handleEvent} from './lib/licensed-events.ts';
 const mf=new Miniflare({modules:[{type:'ESModule',name:'index.js',path:fileURLToPath(new URL('./scripts/d1-worker.mjs',import.meta.url))}],d1Databases:{DB:'licensed'},d1Persist:false,compatibilityDate:'2026-05-15'});
 const db=await mf.getD1Database('DB');
-for(const file of ['0001_licensed_core.sql','0002_staff_auth.sql']) for(const statement of readFileSync(new URL(`./drizzle/${file}`,import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean)) await db.prepare(statement).run();
+for(const file of ['0001_licensed_core.sql','0002_staff_auth.sql','0003_partner_outbox.sql']) for(const statement of readFileSync(new URL(`./drizzle/${file}`,import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean)) await db.prepare(statement).run();
 const env={DB:db};
 const server=createServer(async(req,res)=>{
  if(req.method==='GET'&&req.url==='/healthz'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({ok:true}));return;}

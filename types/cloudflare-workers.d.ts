@@ -6,6 +6,7 @@ interface D1PreparedStatement {
   bind(...values:unknown[]):D1PreparedStatement;
   first<T=unknown>(column?:string):Promise<T|null>;
   run():Promise<{meta:{changes:number}}>;
+  all<T=unknown>():Promise<{results:T[]}>;
 }
 interface D1Database {
   prepare(sql:string):D1PreparedStatement;
