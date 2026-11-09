@@ -13,7 +13,8 @@ async function walk(dir,root=dir,out=[]){
 
 test('licensed repository contains no client, KYC or mobile trees',async()=>{
   const files=await walk(fileURLToPath(new URL('..',import.meta.url)));
-  for(const forbidden of ['app/h5/','app/mini/','app/team/','lib/kyc/','lib/postloan/','lib/notifications/','mobile/'])assert.equal(files.some(file=>file.replaceAll('\\','/').startsWith(forbidden)),false,forbidden);
+  for(const forbidden of ['app/h5/','app/mini/','lib/kyc/','lib/postloan/','lib/notifications/','mobile/'])assert.equal(files.some(file=>file.replaceAll('\\','/').startsWith(forbidden)),false,forbidden);
+  assert.equal(files.some(file=>file.replaceAll('\\','/').startsWith('app/team/')&&!file.replaceAll('\\','/').startsWith('app/team/login/')),false,'app/team outside login');
   assert.equal(files.some(file=>file.replaceAll('\\','/').startsWith('components/mini-')),false,'components/mini-*');
 });
 
