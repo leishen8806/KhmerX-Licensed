@@ -38,7 +38,7 @@ export async function dispatchPartnerOutbox(env:Env,now=new Date().toISOString()
   if((status>=200&&status<300)||status===409){await db.prepare("UPDATE partner_outbox SET status='delivered',lease_until=NULL,last_error=?,delivered_at=? WHERE id=? AND status='sending'").bind(status===409?'HTTP_409':null,now,row.id).run();sent++;continue;}
   const error=status?`HTTP_${status}${responseCode?`:${responseCode}`:''}`:'TIMEOUT';
   if(Date.parse(row.created_at)+86400000<=nowMs){await db.prepare("UPDATE partner_outbox SET status='dead',lease_until=NULL,last_error=? WHERE id=? AND status='sending'").bind(error,row.id).run();dead++;continue;}
-  const delay=Math.min(3600,30*2**Math.max(0,row.attempts-1));await db.prepare("UPDATE partner_outbox SET status='pending',lease_until=NULL,last_error=?,next_attempt_at=? WHERE id=? AND status='sending'").bind(error,nowMs+delay*1000,row.id).run();
+  const delay=Math.min(300,30*2**Math.max(0,row.attempts-1));await db.prepare("UPDATE partner_outbox SET status='pending',lease_until=NULL,last_error=?,next_attempt_at=? WHERE id=? AND status='sending'").bind(error,nowMs+delay*1000,row.id).run();
  }
  return {sent,dead};
 }
