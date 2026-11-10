@@ -6,6 +6,8 @@
   "engines": {"node": ">=22.13.0"},
   "scripts": {
     "build": "node scripts/run-framework.mjs build",
+    "start": "node scripts/local-e2e/start.mjs",
+    "migrate:local": "node --experimental-strip-types scripts/local-e2e/migrate.mjs",
     "typecheck": "tsc --noEmit --pretty false",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "test": "node --experimental-strip-types --test tests/*.test.mjs"
