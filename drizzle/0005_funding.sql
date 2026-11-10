@@ -28,3 +28,4 @@ CREATE TABLE funding_payments (
   amount_cents INTEGER NOT NULL, status TEXT NOT NULL, requested_by TEXT NOT NULL, checked_by TEXT,
   created_at TEXT NOT NULL, PRIMARY KEY (partner_id,kind,external_reference)
 );
+CREATE TABLE batch_guard (ok INTEGER NOT NULL CHECK (ok=1));
