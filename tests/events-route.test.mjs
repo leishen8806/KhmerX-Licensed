@@ -21,9 +21,10 @@ async function send(db,body,nonce='nonce-route-000001',key='idem-route-001',part
 
 test('licensed D1 receiver accepts the three outbound event samples and rejects others',async t=>{
  const {mf,db}=await database();t.after(()=>mf.dispose());
- for(const [name,nonce] of [['application.submitted','nonce-submitted-0001'],['agreement.signed','nonce-signed-000001'],['application.withdrawn','nonce-withdrawn-0001']]){
-  const body=await readFile(new URL(`${name}.json`,root),'utf8');if(name==='agreement.signed')await db.prepare("UPDATE applications SET status='approved' WHERE id='app-001'").run();assert.equal((await send(db,body,nonce,`idem-${name.replaceAll('.','-')}`)).status,202,name);
- }
+ const submitted=await readFile(new URL('application.submitted.json',root),'utf8');assert.equal((await send(db,submitted,'nonce-submitted-0001','idem-application-submitted')).status,202);
+ await db.prepare("UPDATE applications SET status='approved' WHERE id='app-001'").run();
+ const signed=await readFile(new URL('agreement.signed.json',root),'utf8');assert.equal((await send(db,signed,'nonce-signed-000001','idem-agreement-signed')).status,202);
+ const withdrawn=await readFile(new URL('application.withdrawn.json',root),'utf8');assert.equal((await send(db,withdrawn,'nonce-withdrawn-0001','idem-application-withdrawn')).status,409);
  for(const name of ['loan.approved','loan.rejected','funding.confirmed','repayment.confirmed','payment.failed']){
   const body=await readFile(new URL(`${name}.json`,root),'utf8'),response=await send(db,body,`nonce-${name.replaceAll('.','-')}-001`,`idem-${name.replaceAll('.','-')}`);assert.equal(response.status,400,name);assert.equal((await response.json()).code,'EVENT_NOT_ACCEPTED');
  }
@@ -60,10 +61,23 @@ test('application state transitions preserve submitted payload and enforce closu
  assert.equal((await send(db,submitted,'nonce-state-sub-1','idem-state-sub-1')).status,202);await db.prepare("UPDATE applications SET status='approved' WHERE id='state-app'").run();
  const duplicate=await send(db,submitted,'nonce-state-sub-2','idem-state-sub-2');assert.equal(duplicate.status,409);assert.equal((await duplicate.json()).code,'APPLICATION_EXISTS');
  assert.equal((await send(db,JSON.stringify({eventType:'agreement.signed',applicationId:'state-app',signedAt:'synthetic'}),'nonce-state-sign-1','idem-state-sign-1')).status,202);
- assert.equal((await send(db,JSON.stringify({eventType:'application.withdrawn',applicationId:'state-app',reason:'synthetic'}),'nonce-state-with-1','idem-state-with-1')).status,202);
- const after=await db.prepare('SELECT status,payload FROM applications WHERE partner_id=? AND id=?').bind('partner-a','state-app').first();assert.equal(after.status,'withdrawn');assert.match(after.payload,/amountCents/);assert.doesNotMatch(after.payload,/signedAt/);
- const closed=await send(db,JSON.stringify({eventType:'agreement.signed',applicationId:'state-app'}),'nonce-state-closed-1','idem-state-closed-1');assert.equal(closed.status,409);assert.equal((await closed.json()).code,'APPLICATION_CLOSED');
- const events=await db.prepare('SELECT event_type FROM application_events WHERE partner_id=? AND application_id=? ORDER BY created_at').bind('partner-a','state-app').all();assert.deepEqual(events.results.map(row=>row.event_type),['agreement.signed','application.withdrawn']);
+ assert.equal((await send(db,JSON.stringify({eventType:'application.withdrawn',applicationId:'state-app',reason:'synthetic'}),'nonce-state-with-1','idem-state-with-1')).status,409);
+ const after=await db.prepare('SELECT status,payload FROM applications WHERE partner_id=? AND id=?').bind('partner-a','state-app').first();assert.equal(after.status,'signed');assert.match(after.payload,/amountCents/);assert.doesNotMatch(after.payload,/signedAt/);
+ const closed=await send(db,JSON.stringify({eventType:'agreement.signed',applicationId:'state-app'}),'nonce-state-closed-1','idem-state-closed-1');assert.equal(closed.status,409);assert.equal((await closed.json()).code,'APPLICATION_STATE_INVALID');
+ const events=await db.prepare('SELECT event_type FROM application_events WHERE partner_id=? AND application_id=? ORDER BY created_at').bind('partner-a','state-app').all();assert.deepEqual(events.results.map(row=>row.event_type),['agreement.signed']);
+});
+
+test('withdrawal is allowed from submitted pending_check and approved, then idempotent',async t=>{
+ const {mf,db}=await database();t.after(()=>mf.dispose());
+ for(const [id,status] of [['withdraw-submitted-0001','submitted'],['withdraw-pending-0001','pending_check'],['withdraw-approved-0001','approved']]){
+  assert.equal((await send(db,JSON.stringify({eventType:'application.submitted',applicationId:id}),`nonce-${id}-sub`,`idem-${id}-sub`)).status,202);
+  if(status!=='submitted')await db.prepare('UPDATE applications SET status=? WHERE id=?').bind(status,id).run();
+  assert.equal((await send(db,JSON.stringify({eventType:'application.withdrawn',applicationId:id}),`nonce-${id}-with`,`idem-${id}-with`)).status,202);
+  assert.equal((await db.prepare('SELECT status FROM applications WHERE id=?').bind(id).first()).status,'withdrawn');
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM application_events WHERE application_id=?').bind(id).first()).n,1);
+  assert.equal((await send(db,JSON.stringify({eventType:'application.withdrawn',applicationId:id}),`nonce-${id}-retry`,`idem-${id}-retry`)).status,200);
+ }
+ const signedId='w-signed';assert.equal((await send(db,JSON.stringify({eventType:'application.submitted',applicationId:signedId}),'nonce-w-signed-sub','idem-w-signed-sub')).status,202);await db.prepare("UPDATE applications SET status='signed' WHERE id=?").bind(signedId).run();assert.equal((await send(db,JSON.stringify({eventType:'application.withdrawn',applicationId:signedId}),'nonce-w-signed-with','idem-w-signed-with')).status,409);
 });
 
 test('concurrent writes convert nonce and idempotency races to non-500 responses',async t=>{
