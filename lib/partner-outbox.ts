@@ -21,9 +21,10 @@ export async function buildPartnerEvent(input:EventInput){
  return JSON.stringify(payload);
 }
 
-export async function partnerOutboxInsert(db:DB,input:EventInput){
+export async function partnerOutboxInsert(db:DB,input:EventInput,options:{unconditional?:boolean}={}){
  const body=await buildPartnerEvent(input),now=input.occurredAt;
- return db.prepare("INSERT OR IGNORE INTO partner_outbox(id,partner_id,event_type,idempotency_key,payload,payload_sha256,status,attempts,next_attempt_at,lease_until,last_error,created_at,delivered_at) SELECT ?,?,?,?,?,?, 'pending',0,0,NULL,NULL,?,NULL WHERE changes()=1").bind(crypto.randomUUID(),input.partnerId,input.eventType,`${input.eventType}:${input.eventId}`,body,await sha256(body),now);
+ const sql=options.unconditional?"INSERT OR IGNORE INTO partner_outbox(id,partner_id,event_type,idempotency_key,payload,payload_sha256,status,attempts,next_attempt_at,lease_until,last_error,created_at,delivered_at) VALUES(?,?,?,?,?,?, 'pending',0,0,NULL,NULL,?,NULL)":"INSERT OR IGNORE INTO partner_outbox(id,partner_id,event_type,idempotency_key,payload,payload_sha256,status,attempts,next_attempt_at,lease_until,last_error,created_at,delivered_at) SELECT ?,?,?,?,?,?, 'pending',0,0,NULL,NULL,?,NULL WHERE changes()=1";
+ return db.prepare(sql).bind(crypto.randomUUID(),input.partnerId,input.eventType,`${input.eventType}:${input.eventId}`,body,await sha256(body),now);
 }
 
 export async function dispatchPartnerOutbox(env:Env,now=new Date().toISOString(),fetcher:typeof fetch=fetch){
