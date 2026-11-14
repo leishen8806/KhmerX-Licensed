@@ -17,4 +17,4 @@ node --experimental-strip-types scripts/local-e2e/seed-staff.mjs
 npm start
 ```
 
-`migrate:local` 将 0001～0004 写入 `.wrangler/state` 的本地 D1；`seed-staff` 在终端输出虚构员工的登录信息，不写入文件。重启 `npm start` 时继续使用同一个 `.wrangler/state`，数据应保留。健康检查：`GET http://127.0.0.1:8788/healthz`。
+`migrate:local` 按文件名顺序将 `drizzle/` 下的全部 `.sql` 应用到 `.wrangler/state` 的本地 D1；`seed-staff` 在终端输出虚构员工的登录信息（含放款员 `finance` 和放款复核员 `finance_checker`），不写入文件。重启 `npm start` 时继续使用同一个 `.wrangler/state`，数据应保留。健康检查：`GET http://127.0.0.1:8788/healthz`。
