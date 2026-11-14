@@ -15,7 +15,7 @@ const password=`Synthetic-${crypto.randomUUID().slice(0,8)}!`;
 const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const randomBase32=()=>{const bytes=crypto.getRandomValues(new Uint8Array(16));let out='';for(const byte of bytes)out+=alphabet[byte%alphabet.length];return out;};
 const stamp=new Date().toISOString();
-const staff=[['lender@example.test','lender'],['checker@example.test','checker'],['admin@example.test','admin']];
+const staff=[['lender@example.test','lender'],['checker@example.test','checker'],['admin@example.test','admin'],['finance@example.test','finance'],['finance_checker@example.test','finance_checker']];
 for(const [email,role] of staff){
  const mfaSecret=randomBase32();
  const id=crypto.randomUUID(),hash=await makePassword(password),protectedSecret=await protectMfaSecret(mfaSecret,authSecret);
