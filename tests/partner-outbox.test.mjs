@@ -3,13 +3,13 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {Miniflare} from 'miniflare';
-import {dispatchPartnerOutbox,partnerOutboxInsert} from '../lib/partner-outbox.ts';
+import {dispatchPartnerOutbox,partnerOutboxInsert,listDeadPartnerOutbox,requeuePartnerOutbox} from '../lib/partner-outbox.ts';
 import {verifyInstitutionCallback} from '../lib/institution-callback.ts';
 
 const now='2026-11-09T00:00:00.000Z';
 async function db(){
  const mf=new Miniflare({modules:[{type:'ESModule',name:'index.js',path:fileURLToPath(new URL('../scripts/d1-worker.mjs',import.meta.url))}],d1Databases:{DB:'licensed'},d1Persist:false,compatibilityDate:'2026-05-15'}),database=await mf.getD1Database('DB');
- for(const file of ['0001_licensed_core.sql','0003_partner_outbox.sql'])for(const sql of readFileSync(new URL(`../drizzle/${file}`,import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await database.prepare(sql).run();
+ for(const file of ['0001_licensed_core.sql','0002_staff_auth.sql','0003_partner_outbox.sql','0006_partner_outbox_requeue.sql'])for(const sql of readFileSync(new URL(`../drizzle/${file}`,import.meta.url),'utf8').split(';').map(x=>x.trim()).filter(Boolean))await database.prepare(sql).run();
  return {mf,database};
 }
 const envFor=database=>({DB:database,PARTNER_OUTBOX:'on',PARTNER_OUTBOUND_SECRETS_JSON:JSON.stringify({'licensed-test':'synthetic-secret'}),PARTNER_ENDPOINTS_JSON:JSON.stringify({'licensed-test':'https://institution.invalid/v0/events'}),PARTNER_SENDER_IDS_JSON:JSON.stringify({'licensed-test':'sender-licensed'})});
@@ -26,3 +26,36 @@ test('missing sender id is dead without sending',async t=>{const {mf,database}=a
 test('local mode allows only loopback HTTP without credentials',async t=>{const {mf,database}=await db();t.after(()=>mf.dispose());const accepted={...envFor(database),PAYEASE_ENV:'local',PARTNER_ENDPOINTS_JSON:JSON.stringify({'licensed-test':'http://127.0.0.1:8787/v0/events'})};await add(database,accepted,{eventId:'local-http-001'});let calls=0;assert.deepEqual(await dispatchPartnerOutbox(accepted,now,async()=>{calls++;return new Response('',{status:202});}),{sent:1,dead:0});const localhost={...accepted,PARTNER_ENDPOINTS_JSON:JSON.stringify({'licensed-test':'http://localhost:8787/v0/events'})};await add(database,localhost,{eventId:'local-http-002'});assert.deepEqual(await dispatchPartnerOutbox(localhost,now,async()=>{calls++;return new Response('',{status:202});}),{sent:1,dead:0});const credentialed={...accepted,PARTNER_ENDPOINTS_JSON:JSON.stringify({'licensed-test':'http://user:pass@127.0.0.1:8787/v0/events'})};await add(database,credentialed,{eventId:'local-http-003'});assert.deepEqual(await dispatchPartnerOutbox(credentialed,now,async()=>{calls++;return new Response('',{status:202});}),{sent:0,dead:1});const production={...accepted,PAYEASE_ENV:'production'};await add(database,production,{eventId:'local-http-004'});assert.deepEqual(await dispatchPartnerOutbox(production,now,async()=>{calls++;return new Response('',{status:202});}),{sent:0,dead:1});assert.equal(calls,2);});
 test('gray and unset environments reject loopback HTTP',async t=>{const {mf,database}=await db();t.after(()=>mf.dispose());for(const environment of ['gray',undefined]){const env={...envFor(database),...(environment?{PAYEASE_ENV:environment}:{}),PARTNER_ENDPOINTS_JSON:JSON.stringify({'licensed-test':'http://127.0.0.1:8799/v0/events'})};if(environment===undefined)delete env.PAYEASE_ENV;await add(database,env,{eventId:`http-reject-${environment||'unset'}`});let calls=0;const result=await dispatchPartnerOutbox(env,now,async()=>{calls++;return new Response('',{status:202});});assert.deepEqual(result,{sent:0,dead:1});assert.equal(calls,0);assert.equal((await database.prepare('SELECT last_error FROM partner_outbox ORDER BY created_at DESC LIMIT 1').first()).last_error,'PARTNER_ENDPOINT_INVALID');}});
 test('local environment rejects non-loopback HTTP',async t=>{const {mf,database}=await db();t.after(()=>mf.dispose());for(const host of ['10.0.0.5','example.test']){const env={...envFor(database),PAYEASE_ENV:'local',PARTNER_ENDPOINTS_JSON:JSON.stringify({'licensed-test':`http://${host}/v0/events`})};await add(database,env,{eventId:`http-reject-${host}`});let calls=0;const result=await dispatchPartnerOutbox(env,now,async()=>{calls++;return new Response('',{status:202});});assert.deepEqual(result,{sent:0,dead:1});assert.equal(calls,0);assert.equal((await database.prepare('SELECT last_error FROM partner_outbox ORDER BY created_at DESC LIMIT 1').first()).last_error,'PARTNER_ENDPOINT_INVALID');}});
+
+test('admin-only dead list and atomic idempotent requeue preserve payload and audit once',async t=>{
+ const {mf,database}=await db();t.after(()=>mf.dispose());const env=envFor(database),admin={id:'admin',role:'admin'},checker={id:'checker',role:'checker'};
+ await add(database,env,{eventId:'first'});await add(database,env,{eventId:'second'});
+ const [first,second]=(await database.prepare('SELECT * FROM partner_outbox ORDER BY idempotency_key').all()).results;
+ const input={action:'requeue',id:first.id,requestId:'request_123',reason:'verified partner availability'};
+ assert.equal((await listDeadPartnerOutbox(database,checker)).status,403);
+ assert.equal((await requeuePartnerOutbox(database,checker,input)).status,403);
+ const missing=await requeuePartnerOutbox(database,admin,{...input,reason:' '});assert.equal(missing.status,400);assert.equal((await missing.json()).code,'REASON_REQUIRED');
+ assert.equal((await requeuePartnerOutbox(database,admin,input)).status,409);
+ assert.equal((await database.prepare('SELECT COUNT(*) AS n FROM team_audit').first()).n,0);
+ await database.prepare("UPDATE partner_outbox SET status='dead',attempts=5,lease_until=10 WHERE id=?").bind(first.id).run();
+ const {items}=await (await listDeadPartnerOutbox(database,admin)).json();
+ assert.deepEqual(items.map(x=>x.id),[first.id]);assert.deepEqual(Object.keys(items[0]).sort(),['attempts','created_at','event_type','id','last_error','partner_id','requeue_count','requeued_at']);
+ const replies=await Promise.all([requeuePartnerOutbox(database,admin,input),requeuePartnerOutbox(database,admin,input)]);
+ assert.deepEqual(replies.map(r=>r.status),[200,200]);assert.equal((await Promise.all(replies.map(r=>r.json()))).filter(r=>r.idempotent).length,1);
+ await database.prepare("UPDATE partner_outbox SET status='dead' WHERE id=?").bind(second.id).run();
+ const reused=await requeuePartnerOutbox(database,admin,{...input,id:second.id});assert.equal(reused.status,409);assert.equal((await reused.json()).code,'REQUEST_ID_REUSED');
+ const row=await database.prepare('SELECT * FROM partner_outbox WHERE id=?').bind(first.id).first();
+ assert.equal(row.status,'pending');assert.equal(row.attempts,0);assert.equal(row.lease_until,null);assert.equal(row.next_attempt_at,Date.parse(row.requeued_at));assert.equal(row.requeue_count,1);assert.equal(row.payload,first.payload);assert.equal(row.idempotency_key,first.idempotency_key);
+ const audits=(await database.prepare("SELECT detail FROM team_audit WHERE action='partner_outbox_requeue'").all()).results;
+ assert.deepEqual(audits.map(a=>JSON.parse(a.detail)),[{recordId:first.id,reason:input.reason,requestId:input.requestId}]);
+});
+
+test('dispatch grants a fresh 24 hours from requeued_at',async t=>{
+ const {mf,database}=await db();t.after(()=>mf.dispose());const env=envFor(database);
+ await add(database,env,{createdAt:'2026-11-01T00:00:00.000Z'});
+ await database.prepare('UPDATE partner_outbox SET requeued_at=?').bind(now).run();
+ const fail=async()=>new Response('',{status:500});
+ assert.deepEqual(await dispatchPartnerOutbox(env,'2026-11-09T23:59:59.999Z',fail),{sent:0,dead:0});
+ await database.prepare('UPDATE partner_outbox SET next_attempt_at=0').run();
+ assert.deepEqual(await dispatchPartnerOutbox(env,'2026-11-10T00:00:00.000Z',fail),{sent:0,dead:1});
+});
